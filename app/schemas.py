@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -9,11 +10,11 @@ class ReportResponse(BaseModel):
     report_name: str
     module: str
     report_type: str
-    template_id: Optional[int]
+    template_id: int | None = None
     owner: str
     status: str
-    last_run: Optional[datetime]
-    run_time_seconds: float
+    last_run: datetime | None = None
+    run_time_seconds: Decimal
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -67,3 +68,9 @@ class TemplateRankingItem(BaseModel):
     template_id: int
     template_name: str
     report_count: int
+
+class ReportListResponse(BaseModel):
+    success: bool
+    data: list[ReportResponse]
+    pagination: PaginationResponse
+    message: str

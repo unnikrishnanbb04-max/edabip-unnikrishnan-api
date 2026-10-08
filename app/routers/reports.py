@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import Report, ReportActivity
-from ..schemas import ReportResponse
+from ..schemas import ReportListResponse
 
 router = APIRouter(
     prefix="/reports",
@@ -17,7 +17,7 @@ router = APIRouter(
 
 @router.get(
     "/",
-    response_model=dict
+    response_model=ReportListResponse
 )
 def get_reports(
     page: int = 1,
