@@ -1,32 +1,17 @@
-from fastapi import Request
-from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+
+from fastapi import HTTPException, status
 
 
-async def validation_exception_handler(
-    request: Request,
-    exc: RequestValidationError
-):
-    return JSONResponse(
-        status_code=422,
-        content={
-            "success": False,
-            "data": None,
-            "message": "Validation error",
-            "errors": exc.errors()
-        }
+def not_found(message: str = "Resource not found"):
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=message
     )
 
 
-async def general_exception_handler(
-    request: Request,
-    exc: Exception
-):
-    return JSONResponse(
-        status_code=500,
-        content={
-            "success": False,
-            "data": None,
-            "message": "Internal server error"
-        }
+def unauthorized(message: str = "Invalid or missing token"):
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=message,
+        headers={"WWW-Authenticate": "Bearer"}
     )

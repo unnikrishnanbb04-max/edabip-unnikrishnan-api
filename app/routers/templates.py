@@ -1,67 +1,44 @@
+
 from fastapi import APIRouter, Depends
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from ..database import get_db
-from ..models import Report, ReportTemplate
+from app.database import get_db
+from app.models import User, ReportTemplate
+from app.schemas.template import TemplateCreate, TemplateResponse
+from app.repositories import template_repository as repo
+from app.services.auth_service import get_current_user
 
-router = APIRouter(
-    prefix="/templates",
-    tags=["Templates"]
-)
+router = APIRouter(prefix="/templates", tags=["Templates"])
 
 
-@router.get("/top")
-def get_top_templates(
-    limit: int = 5,
-    db: Session = Depends(get_db)
+@router.post("/", response_model=TemplateResponse, status_code=201)
+def create_template(
+    data: TemplateCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user)
 ):
-    if limit < 1 or limit > 20:
-        from fastapi import HTTPException
+    template = ReportTemplate(**data.model_dump())
+    return repo.create_template(db, template)
 
-        raise HTTPException(
-            status_code=422,
-            detail="limit must be between 1 and 20"
-        )
 
-    results = (
-        db.query(
-            ReportTemplate.id,
-            ReportTemplate.template_name,
-            func.count(Report.id).label(
-                "report_count"
-            )
-        )
-        .outerjoin(
-            Report,
-            Report.template_id == ReportTemplate.id
-        )
-        .group_by(
-            ReportTemplate.id,
-            ReportTemplate.template_name
-        )
-        .order_by(
-            func.count(Report.id).desc()
-        )
-        .limit(limit)
-        .all()
-    )
+@router.get("/", response_model=list[TemplateResponse])
+def get_templates(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user)
+):
+    return repo.list_templates(db)
 
-    data = [
-        {
-            "template_id": template_id,
-            "template_name": template_name,
-            "report_count": report_count
-        }
-        for (
-            template_id,
-            template_name,
-            report_count
-        ) in results
-    ]
 
-    return {
-        "success": True,
-        "data": data,
-        "message": "Top report templates fetched successfully"
-    }
+@router.get("/{template_id}", response_model=TemplateResponse)
+def get_template(
+    template_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user)
+):
+    from app.exceptions import not_found
+
+    template = repo.get_template(db, template_id)
+    if not template:
+        raise not_found("Template not found")
+
+    return template

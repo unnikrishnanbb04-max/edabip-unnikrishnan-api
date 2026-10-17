@@ -1,87 +1,88 @@
-from fastapi import APIRouter, Depends, HTTPException
+
+import csv
+from io import StringIO
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from ..database import get_db
-from ..models import ReportActivity
-
-router = APIRouter(
-    prefix="/activity",
-    tags=["Activity"]
+from app.database import get_db
+from app.models import User
+from app.schemas.activity import ActivityResponse
+from app.repositories.activity_repository import (
+    list_activities, filtered_activities
 )
+from app.services.auth_service import get_current_user
+
+router = APIRouter(prefix="/activity", tags=["Activity"])
+
+
+def validate_status(status: str | None):
+    if status and status not in {"Completed", "Failed", "Scheduled"}:
+        raise HTTPException(422, "Invalid activity status")
 
 
 @router.get("/")
 def get_activity(
-    page: int = 1,
-    limit: int = 10,
-    search: str | None = None,
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100),
     status: str | None = None,
-    db: Session = Depends(get_db)
+    search: str | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
-    if page < 1:
-        raise HTTPException(
-            status_code=422,
-            detail="page must be greater than 0"
-        )
+    validate_status(status)
 
-    if limit < 1 or limit > 100:
-        raise HTTPException(
-            status_code=422,
-            detail="limit must be between 1 and 100"
-        )
-
-    query = db.query(ReportActivity)
-
-    if search:
-        query = query.filter(
-            ReportActivity.message.ilike(
-                f"%{search}%"
-            )
-        )
-
-    if status:
-        allowed_statuses = {
-            "Completed",
-            "Failed",
-            "Scheduled"
-        }
-
-        if status not in allowed_statuses:
-            raise HTTPException(
-                status_code=422,
-                detail="Invalid status"
-            )
-
-        query = query.filter(
-            ReportActivity.status == status
-        )
-
-    total = query.count()
-
-    activities = (
-        query
-        .order_by(
-            ReportActivity.started_at.desc()
-        )
-        .offset((page - 1) * limit)
-        .limit(limit)
-        .all()
-    )
-
-    total_pages = (
-        (total + limit - 1) // limit
-        if total
-        else 0
+    items, total = list_activities(
+        db, page, limit, status, search
     )
 
     return {
-        "success": True,
-        "data": activities,
-        "pagination": {
-            "page": page,
-            "limit": limit,
-            "total": total,
-            "total_pages": total_pages
-        },
-        "message": "Activity fetched successfully"
+        "items": [
+            ActivityResponse.model_validate(item).model_dump(mode="json")
+            for item in items
+        ],
+        "total": total,
+        "page": page,
+        "limit": limit,
     }
+
+
+@router.get("/export/csv")
+def export_activity_csv(
+    status: str | None = None,
+    search: str | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    validate_status(status)
+
+    activities = filtered_activities(db, status, search)
+
+    output = StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "id", "report_id", "username", "action",
+        "status", "details", "created_at"
+    ])
+
+    for activity in activities:
+        writer.writerow([
+            activity.id,
+            activity.report_id,
+            activity.username,
+            activity.action,
+            activity.status,
+            activity.details,
+            activity.created_at,
+        ])
+
+    output.seek(0)
+
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": "attachment; filename=recent_activity.csv"
+        },
+    )

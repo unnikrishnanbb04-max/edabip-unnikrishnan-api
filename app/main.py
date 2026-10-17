@@ -1,75 +1,34 @@
+
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
-from fastapi.exceptions import RequestValidationError
 
-from .exceptions import (
-    general_exception_handler,
-    validation_exception_handler
-)
+from app.config.settings import settings
+from app.database import Base, engine
+from app import models
+from app.routers import auth, dashboard, reports, activity, templates, schedules
 
-from .routers import (
-    activity,
-    dashboard,
-    reports,
-    templates
-)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    Base.metadata.create_all(bind=engine)
+    yield
 
 
 app = FastAPI(
-    title="Reports Management API",
-    description=(
-        "FastAPI backend for Reports Dashboard "
-        "and Report Activity Management"
-    ),
-    version="1.0.0"
+    title=settings.app_name,
+    version="2.0.0",
+    lifespan=lifespan,
 )
 
-
-app.add_exception_handler(
-    RequestValidationError,
-    validation_exception_handler
-)
-
-app.add_exception_handler(
-    Exception,
-    general_exception_handler
-)
-
-
-app.include_router(
-    dashboard.router
-)
-
-app.include_router(
-    reports.router
-)
-
-app.include_router(
-    activity.router
-)
-
-app.include_router(
-    templates.router
-)
+app.include_router(auth.router)
+app.include_router(dashboard.router)
+app.include_router(reports.router)
+app.include_router(activity.router)
+app.include_router(templates.router)
+app.include_router(schedules.router)
 
 
 @app.get("/")
-def root():
-    return {
-        "success": True,
-        "data": {
-            "application": "Reports Management API",
-            "version": "1.0.0"
-        },
-        "message": "API is running"
-    }
-
-
-@app.get("/health")
-def health():
-    return {
-        "success": True,
-        "data": {
-            "status": "healthy"
-        },
-        "message": "Service is healthy"
-    }
+def health_check():
+    return {"message": "Reports API is running"}
