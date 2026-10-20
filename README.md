@@ -68,3 +68,4 @@ module not foundedd eror
 python -m pip install pydantic-settings
 python -m pip install "python-jose[cryptography]"
 python -m pip install "passlib[bcrypt]"
+ uvicorn app.main:app --reload
