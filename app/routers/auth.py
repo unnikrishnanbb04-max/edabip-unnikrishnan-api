@@ -31,10 +31,10 @@ def register(data: UserRegister, db: Session = Depends(get_db)):
         )
 
     user = User(
-        name=data.name,
+        username=data.name,
         email=data.email,
         hashed_password=hash_password(data.password),
-        role="Viewer",
+        role=data.role,
     )
 
     db.add(user)
