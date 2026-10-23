@@ -8,10 +8,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.main import app
 from app.database import Base, get_db
 from app.models import User, Report
 from app.services.auth_service import hash_password
+from app.main import app
+
 
 
 TEST_ENGINE = create_engine(
@@ -35,13 +36,13 @@ def client():
     db = TestingSessionLocal()
 
     admin = User(
-        name="Test Admin",
+        username="Test Admin",
         email="admin@example.com",
         hashed_password=hash_password("AdminPass123"),
         role="Admin",
     )
     viewer = User(
-        name="Test Viewer",
+        username="Test Viewer",
         email="viewer@example.com",
         hashed_password=hash_password("ViewerPass123"),
         role="Viewer",

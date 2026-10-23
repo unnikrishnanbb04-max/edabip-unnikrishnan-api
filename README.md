@@ -69,3 +69,5 @@ python -m pip install pydantic-settings
 python -m pip install "python-jose[cryptography]"
 python -m pip install "passlib[bcrypt]"
  uvicorn app.main:app --reload
+ tests cases run comand
+ python -m pytest tests/test_reports.py -v
