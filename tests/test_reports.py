@@ -10,8 +10,10 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
 from app.models import User, Report
-from app.services.auth_service import hash_password
 from app.main import app
+from tests.conftest import token
+from app.security import hash_password
+from app.routers.auth import _attempts, _lock
 
 
 
@@ -36,13 +38,13 @@ def client():
     db = TestingSessionLocal()
 
     admin = User(
-        username="Test Admin",
+        name="Test Admin",
         email="admin@example.com",
         hashed_password=hash_password("AdminPass123"),
         role="Admin",
     )
     viewer = User(
-        username="Test Viewer",
+        name="Test Viewer",
         email="viewer@example.com",
         hashed_password=hash_password("ViewerPass123"),
         role="Viewer",
@@ -57,7 +59,7 @@ def client():
         report_type="On Demand",
         owner="Test Admin",
         status="Completed",
-        run_time=1.2,
+        run_duration_seconds=1.2,
     )
     db.add(report)
     db.commit()
@@ -72,6 +74,9 @@ def client():
 
     app.dependency_overrides[get_db] = override_get_db
 
+    with _lock:
+        _attempts.clear()
+
     with TestClient(app) as test_client:
         yield test_client
 
@@ -82,9 +87,13 @@ def client():
 def get_token(client, email, password):
     response = client.post(
         "/auth/login",
-        data={"username": email, "password": password},
+        json={
+            "email": email,
+            "password": password
+        }
     )
-    assert response.status_code == 200
+
+    assert response.status_code == 200, response.text
     return response.json()["access_token"]
 
 
@@ -93,7 +102,7 @@ def auth_header(token):
 
 
 def test_health_check(client):
-    response = client.get("/")
+    response = client.get("/health")
     assert response.status_code == 200
 
 
@@ -108,11 +117,17 @@ def test_report_requires_token(client):
 
 
 def test_viewer_cannot_rerun_report(client):
-    token = get_token(client, "viewer@example.com", "ViewerPass123")
+    token = get_token(
+        client,
+        "viewer@example.com",
+        "ViewerPass123",
+    )
+
     response = client.post(
-        "/reports/1/run",
+        "/reports/1/rerun",
         headers=auth_header(token),
     )
+
     assert response.status_code == 403
 
 
@@ -135,9 +150,14 @@ def test_missing_report_returns_404(client):
 
 
 def test_csv_contains_header_row(client):
-    token = get_token(client, "viewer@example.com", "ViewerPass123")
+    token = get_token(
+        client,
+        "viewer@example.com",
+        "ViewerPass123",
+    )
+
     response = client.get(
-        "/activity/export/csv",
+        "/reports/activity/export.csv",
         headers=auth_header(token),
     )
 
@@ -145,11 +165,17 @@ def test_csv_contains_header_row(client):
     assert "text/csv" in response.headers["content-type"]
 
     rows = list(csv.reader(StringIO(response.text)))
-    assert rows[0] == [
-        "id", "report_id", "username", "action",
-        "status", "details", "created_at",
-    ]
 
+    assert rows[0] == [
+        "id",
+        "report_id",
+        "schedule_id",
+        "action",
+        "status",
+        "message",
+        "duration_seconds",
+        "created_at",
+    ]
 
 def test_viewer_can_list_reports(client):
     token = get_token(client, "viewer@example.com", "ViewerPass123")

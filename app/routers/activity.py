@@ -10,7 +10,8 @@ from app.database import get_db
 from app.models import User
 from app.schemas.activity import ActivityResponse
 from app.repositories.activity_repository import (
-    list_activities, filtered_activities
+    list_activities,
+    filtered_activities,
 )
 from app.services.auth_service import get_current_user
 
@@ -19,7 +20,7 @@ router = APIRouter(prefix="/activity", tags=["Activity"])
 
 def validate_status(status: str | None):
     if status and status not in {"Completed", "Failed", "Scheduled"}:
-        raise HTTPException(422, "Invalid activity status")
+        raise HTTPException(status_code=422, detail="Invalid activity status")
 
 
 @router.get("/")
@@ -33,9 +34,7 @@ def get_activity(
 ):
     validate_status(status)
 
-    items, total = list_activities(
-        db, page, limit, status, search
-    )
+    items, total = list_activities(db, page, limit, status, search)
 
     return {
         "items": [
@@ -45,6 +44,7 @@ def get_activity(
         "total": total,
         "page": page,
         "limit": limit,
+        "total_pages": (total + limit - 1) // limit,
     }
 
 
@@ -61,9 +61,15 @@ def export_activity_csv(
 
     output = StringIO()
     writer = csv.writer(output)
+
     writer.writerow([
-        "id", "report_id", "username", "action",
-        "status", "details", "created_at"
+        "id",
+        "report_id",
+        "username",
+        "action",
+        "status",
+        "details",
+        "created_at",
     ])
 
     for activity in activities:

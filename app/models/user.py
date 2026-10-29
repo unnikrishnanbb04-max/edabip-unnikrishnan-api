@@ -1,18 +1,16 @@
-
-from sqlalchemy import Column, Integer, String, DateTime
-from sqlalchemy.sql import func
-
+from datetime import datetime, timezone
+from sqlalchemy import DateTime, Integer, String
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
+def utcnow():
+    return datetime.now(timezone.utc)
 
 class User(Base):
     __tablename__ = "users"
-
-    id = Column(Integer, primary_key=True, index=True)
-    username = Column(String(100), nullable=False)
-    email = Column(
-        String(255), unique=True, nullable=False, index=True
-    )
-    hashed_password = Column(String(255), nullable=False)
-    role = Column(String(20), nullable=False, default="Viewer")
-    created_at = Column(DateTime, server_default=func.now())
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    role: Mapped[str] = mapped_column(String(20), nullable=False, default="Viewer", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)

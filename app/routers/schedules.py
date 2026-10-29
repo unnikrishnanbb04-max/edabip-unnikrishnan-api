@@ -1,123 +1,69 @@
-
-from datetime import datetime, timezone
-
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select, func
 from sqlalchemy.orm import Session
-
 from app.database import get_db
-from app.models import User, ReportSchedule, Report
-from app.schemas.schedule import (
-    ScheduleCreate, ScheduleUpdate, ScheduleResponse
-)
-from app.services.auth_service import require_admin
-from app.exceptions import not_found
+from app.dependencies import get_current_user, require_admin
+from app.models.user import User
+from app.models.report import Report
+from app.models.schedule import ReportSchedule
+from app.models.activity import ReportActivity
+from app.schemas.schedule import ScheduleCreate, ScheduleUpdate, ScheduleResponse
 
 router = APIRouter(prefix="/schedules", tags=["Schedules"])
 
+@router.post("", response_model=ScheduleResponse, status_code=201, summary="Create a report schedule")
+def create_schedule(payload: ScheduleCreate, db: Session = Depends(get_db), user: User = Depends(require_admin)):
+    if db.get(Report, payload.report_id) is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    item = ReportSchedule(**payload.model_dump())
+    db.add(item); db.commit(); db.refresh(item)
+    return item
 
-@router.post("/", response_model=ScheduleResponse, status_code=201)
-def create_schedule(
-    data: ScheduleCreate,
-    db: Session = Depends(get_db),
-    user: User = Depends(require_admin),
-):
-    if data.next_run.replace(tzinfo=None) <= datetime.utcnow():
-        raise HTTPException(422, "next_run must be in the future")
-
-    report = db.query(Report).filter(
-        Report.id == data.report_id
-    ).first()
-
-    if not report:
-        raise not_found("Report not found")
-
-    schedule = ReportSchedule(**data.model_dump(), is_active=True)
-    db.add(schedule)
-    db.commit()
-    db.refresh(schedule)
-    return schedule
-
-
-@router.get("/", response_model=list[ScheduleResponse])
-def list_schedules(
-    active: bool | None = None,
-    db: Session = Depends(get_db),
-    user: User = Depends(require_admin),
-):
-    query = db.query(ReportSchedule)
-
+@router.get("", summary="List schedules with pagination")
+def list_schedules(page: int = Query(1, ge=1), size: int = Query(10, ge=1, le=100),
+                   active: bool | None = None, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    stmt = select(ReportSchedule)
     if active is not None:
-        query = query.filter(ReportSchedule.is_active == active)
+        stmt = stmt.where(ReportSchedule.is_active == active)
+    total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+    items = db.scalars(stmt.order_by(ReportSchedule.id.desc()).offset((page-1)*size).limit(size)).all()
+    return {"items": [ScheduleResponse.model_validate(x).model_dump(mode="json") for x in items], "total": total, "page": page, "size": size}
 
-    return query.order_by(ReportSchedule.id.desc()).all()
+@router.get("/{schedule_id}", response_model=ScheduleResponse, summary="Get a schedule")
+def get_schedule(schedule_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    item = db.get(ReportSchedule, schedule_id)
+    if not item: raise HTTPException(status_code=404, detail="Schedule not found")
+    return item
 
+@router.patch("/{schedule_id}", response_model=ScheduleResponse, summary="Update a schedule")
+def update_schedule(schedule_id: int, payload: ScheduleUpdate, db: Session = Depends(get_db), user: User = Depends(require_admin)):
+    item = db.get(ReportSchedule, schedule_id)
+    if not item: raise HTTPException(status_code=404, detail="Schedule not found")
+    for key, value in payload.model_dump(exclude_unset=True).items(): setattr(item, key, value)
+    db.commit(); db.refresh(item)
+    return item
 
-@router.patch("/{schedule_id}", response_model=ScheduleResponse)
-def update_schedule(
-    schedule_id: int,
-    data: ScheduleUpdate,
-    db: Session = Depends(get_db),
-    user: User = Depends(require_admin),
-):
-    schedule = db.query(ReportSchedule).filter(
-        ReportSchedule.id == schedule_id
-    ).first()
+@router.post("/{schedule_id}/pause", response_model=ScheduleResponse, summary="Pause a schedule")
+def pause_schedule(schedule_id: int, db: Session = Depends(get_db), user: User = Depends(require_admin)):
+    item = db.get(ReportSchedule, schedule_id)
+    if not item: raise HTTPException(status_code=404, detail="Schedule not found")
+    item.is_active = False; db.commit(); db.refresh(item)
+    return item
 
-    if not schedule:
-        raise not_found("Schedule not found")
+@router.post("/{schedule_id}/resume", response_model=ScheduleResponse, summary="Resume a schedule")
+def resume_schedule(schedule_id: int, db: Session = Depends(get_db), user: User = Depends(require_admin)):
+    item = db.get(ReportSchedule, schedule_id)
+    if not item: raise HTTPException(status_code=404, detail="Schedule not found")
+    item.is_active = True; db.commit(); db.refresh(item)
+    return item
 
-    changes = data.model_dump(exclude_unset=True)
-
-    if "next_run" in changes and changes["next_run"] is not None:
-        if changes["next_run"].replace(tzinfo=None) <= datetime.utcnow():
-            raise HTTPException(422, "next_run must be in the future")
-
-    for field, value in changes.items():
-        setattr(schedule, field, value)
-
-    db.commit()
-    db.refresh(schedule)
-    return schedule
-
-
-@router.patch("/{schedule_id}/pause", response_model=ScheduleResponse)
-def pause_schedule(
-    schedule_id: int,
-    db: Session = Depends(get_db),
-    user: User = Depends(require_admin),
-):
-    schedule = db.query(ReportSchedule).filter(
-        ReportSchedule.id == schedule_id
-    ).first()
-
-    if not schedule:
-        raise not_found("Schedule not found")
-
-    schedule.is_active = False
-    db.commit()
-    db.refresh(schedule)
-    return schedule
-
-
-@router.patch("/{schedule_id}/resume", response_model=ScheduleResponse)
-def resume_schedule(
-    schedule_id: int,
-    db: Session = Depends(get_db),
-    user: User = Depends(require_admin),
-):
-    schedule = db.query(ReportSchedule).filter(
-        ReportSchedule.id == schedule_id
-    ).first()
-
-    if not schedule:
-        raise not_found("Schedule not found")
-
-    if schedule.next_run.replace(tzinfo=None) <= datetime.utcnow():
-        raise HTTPException(
-            422, "Update next_run to a future time before resuming"
-        )
-
-    schedule.is_active = True
-    db.commit()
-    db.refresh(schedule)
-    return schedule
+@router.get("/{schedule_id}/runs", summary="Get execution history for a schedule")
+def schedule_runs(schedule_id: int, page: int = Query(1, ge=1), size: int = Query(10, ge=1, le=100),
+                  db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    if db.get(ReportSchedule, schedule_id) is None:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    stmt = select(ReportActivity).where(ReportActivity.schedule_id == schedule_id)
+    total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+    items = db.scalars(stmt.order_by(ReportActivity.created_at.desc()).offset((page-1)*size).limit(size)).all()
+    return {"items": [{"id":x.id,"report_id":x.report_id,"schedule_id":x.schedule_id,"status":x.status,"action":x.action,"scheduled_for":x.scheduled_for,"created_at":x.created_at,"message":x.message} for x in items], "total":total,"page":page,"size":size}

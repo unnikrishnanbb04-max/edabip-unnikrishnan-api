@@ -1,73 +1,341 @@
+# Reports API
 
-reports-api/
-│
-├── app/
-│   ├── __init__.py
-│   ├── main.py
-│   ├── database.py
-│   ├── exceptions.py
-│   │
-│   ├── config/
-│   │   ├── __init__.py
-│   │   └── settings.py
-│   │
-│   ├── models/
-│   │   ├── __init__.py
-│   │   ├── user.py
-│   │   ├── report.py
-│   │   ├── template.py
-│   │   ├── activity.py
-│   │   └── schedule.py
-│   │
-│   ├── schemas/
-│   │   ├── __init__.py
-│   │   ├── auth.py
-│   │   ├── report.py
-│   │   ├── template.py
-│   │   ├── activity.py
-│   │   └── schedule.py
-│   │
-│   ├── repositories/
-│   │   ├── __init__.py
-│   │   ├── report_repository.py
-│   │   ├── template_repository.py
-│   │   ├── activity_repository.py
-│   │   └── schedule_repository.py
-│   │
-│   ├── services/
-│   │   ├── __init__.py
-│   │   ├── auth_service.py
-│   │   ├── report_service.py
-│   │   ├── dashboard_service.py
-│   │   └── schedule_service.py
-│   │
-│   └── routers/
-│       ├── __init__.py
-│       ├── auth.py
-│       ├── dashboard.py
-│       ├── reports.py
-│       ├── activity.py
-│       ├── templates.py
-│       └── schedules.py
-│
-├── sql/
-│   ├── schema.sql
-│   └── seed.sql
-│
-├── tests/
-│   ├── __init__.py
-│   └── test_reports.py
-│
-├── .env
-├── .env.example
-├── .gitignore
-├── requirements.txt
-└── README.md
+A JWT-protected reporting API built with **FastAPI**, **SQLAlchemy 2.x**, **PostgreSQL**, **Alembic**, **APScheduler**, and **SlowAPI**. It includes report dashboard aggregates, filtered/paginated report activity, CSV export, Admin/Viewer authorization, report scheduling, request IDs, and health checks.
 
-module not foundedd eror 
-python -m pip install pydantic-settings
-python -m pip install "python-jose[cryptography]"
-python -m pip install "passlib[bcrypt]"
- uvicorn app.main:app --reload
- tests cases run comand
- python -m pytest tests/test_reports.py -v
+## Contents
+
+- [Requirements](#requirements)
+- [Run with Docker Compose](#run-with-docker-compose)
+- [Run locally without Docker](#run-locally-without-docker)
+- [Database migrations](#database-migrations)
+- [Seed sample data](#seed-sample-data)
+- [Authentication and roles](#authentication-and-roles)
+- [API endpoints](#api-endpoints)
+- [Pagination format](#pagination-format)
+- [How the scheduler works](#how-the-scheduler-works)
+- [Entity relationship diagram](#entity-relationship-diagram)
+- [Tests](#tests)
+- [Operational notes](#operational-notes)
+
+## Requirements
+
+- Python 3.12 or newer
+- PostgreSQL 14+ for the complete API and dashboard queries
+- Docker Desktop + Docker Compose v2, if using Docker
+
+The automated tests use an isolated in-memory SQLite database. The application includes PostgreSQL-specific aggregate SQL in the summary endpoint, so use PostgreSQL when running the full API locally or in Docker.
+
+## Run with Docker Compose
+
+1. Copy the example environment file:
+
+   **PowerShell**
+   ```powershell
+   Copy-Item .env.example .env
+   ```
+
+   **macOS/Linux**
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Edit `.env`. Replace `JWT_SECRET_KEY` with a strong random secret. For example, generate one with:
+
+   ```bash
+   python -c "import secrets; print(secrets.token_urlsafe(48))"
+   ```
+
+   Keep the example database password only for local development. `docker-compose.yml` starts PostgreSQL with the default `reports_dev_password` unless `POSTGRES_PASSWORD` is set in the environment.
+
+3. Build and start the API and database:
+
+   ```bash
+   docker compose up --build
+   ```
+
+   The API container runs `alembic upgrade head` before starting Uvicorn. Compose waits for PostgreSQL's health check before starting the API.
+
+4. Open:
+
+   - Swagger UI: <http://localhost:8000/docs>
+   - OpenAPI JSON: <http://localhost:8000/openapi.json>
+   - Health check: <http://localhost:8000/health>
+
+Useful commands:
+
+```bash
+docker compose logs -f api
+docker compose logs -f db
+docker compose down
+```
+
+To remove the database volume as well (this permanently deletes the local database data):
+
+```bash
+docker compose down -v
+```
+
+## Run locally without Docker
+
+This mode runs Python/Uvicorn on your machine and connects to a PostgreSQL server installed locally or hosted elsewhere.
+
+1. Create and activate a virtual environment.
+
+   **PowerShell**
+   ```powershell
+   py -3.12 -m venv .venv
+   .\.venv\Scripts\Activate.ps1
+   ```
+
+   **macOS/Linux**
+   ```bash
+   python3.12 -m venv .venv
+   source .venv/bin/activate
+   ```
+
+2. Install dependencies and create your environment file:
+
+   ```bash
+   python -m pip install --upgrade pip
+   pip install -r requirements.txt
+   ```
+
+   PowerShell:
+   ```powershell
+   Copy-Item .env.example .env
+   ```
+
+   macOS/Linux:
+   ```bash
+   cp .env.example .env
+   ```
+
+3. Create a PostgreSQL database and user, or use an existing development database. Update `.env` to use the database server on your machine. For example:
+
+   ```dotenv
+   DATABASE_URL=postgresql+psycopg://reports:YOUR_LOCAL_PASSWORD@localhost:5432/reports
+   JWT_SECRET_KEY=replace-with-a-long-random-secret
+   CORS_ORIGINS=http://localhost:5173
+   SCHEDULER_ENABLED=true
+   RATE_LIMIT_LOGIN=5/minute
+   ```
+
+   The `db` hostname in the example file is the Docker Compose service name; change it to `localhost` when PostgreSQL runs directly on your machine. URL-encode special characters in database passwords.
+
+4. Apply migrations and start the API:
+
+   ```bash
+   alembic upgrade head
+   uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+   ```
+
+5. Visit <http://127.0.0.1:8000/docs> and <http://127.0.0.1:8000/health>.
+
+Stop the local server with `Ctrl+C`. The application lifespan also shuts down the in-process scheduler when the server exits normally.
+
+## Database migrations
+
+Alembic migrations are stored in `alembic/versions/`. The Docker startup command applies migrations automatically; for local development, run them from the project root with the virtual environment activated.
+
+```bash
+# Apply all pending migrations
+alembic upgrade head
+
+# Show the current database revision
+alembic current
+
+# List migration history
+alembic history
+
+# Generate a new migration after changing SQLAlchemy models
+alembic revision --autogenerate -m "describe the schema change"
+
+# Apply the new migration
+alembic upgrade head
+
+# Roll back one revision (review the migration first)
+alembic downgrade -1
+```
+
+Review autogenerated migrations before applying them, and back up important data before production migrations. Do not edit an already-applied migration; create a new revision instead. The application currently calls `Base.metadata.create_all()` during startup as a convenience for test/local startup, but Alembic should be the schema-change mechanism for deployed environments.
+
+## Seed sample data
+
+The seed script is PostgreSQL-specific and inserts 36 example reports. Run it after the schema has been migrated and the database URL points to the target database:
+
+```bash
+psql "$DATABASE_URL" -f sql/seed.sql
+```
+
+On PowerShell, if `psql` does not interpret the SQLAlchemy URL format, connect with `psql -h localhost -U reports -d reports -f sql/seed.sql` and enter the database password when prompted. Check the seed script before rerunning it against a database that already contains sample rows.
+
+Public registration creates a Viewer account. To exercise Admin-only endpoints, promote a dedicated development account to `Admin` using a controlled database operation; do not expose a public role-assignment endpoint.
+
+## Authentication and roles
+
+- `POST /auth/register` creates a Viewer account.
+- `POST /auth/login` returns a JWT access token.
+- Send the token on protected endpoints as `Authorization: Bearer <token>`.
+- **Viewer**: can read reports, activity, templates, schedules, and run history.
+- **Admin**: can rerun/delete reports and create, update, pause, or resume schedules.
+- Passwords are stored as Argon2 hashes. Login attempts are rate-limited using `RATE_LIMIT_LOGIN`.
+
+Do not use development secrets or passwords in production. Configure secrets through the environment, restrict database access, and use HTTPS in deployed environments.
+
+## API endpoints
+
+| Method | Endpoint | Purpose | Access |
+|---|---|---|---|
+| `GET` | `/health` | Health check | Public |
+| `POST` | `/auth/register` | Register a Viewer | Public |
+| `POST` | `/auth/login` | Obtain a JWT | Public; rate-limited |
+| `GET` | `/reports/summary` | Dashboard totals and average run time | Authenticated |
+| `GET` | `/reports/type-distribution` | Counts by report type | Authenticated |
+| `GET` | `/reports/status-distribution` | Status counts and percentages | Authenticated |
+| `GET` | `/reports` | Search/filter and paginate reports | Authenticated |
+| `GET` | `/reports/recent` | Paginated recent reports | Authenticated |
+| `GET` | `/reports/top-templates` | Most-used templates | Authenticated |
+| `GET` | `/reports/activity` | Filter, sort, and paginate activity | Authenticated |
+| `GET` | `/reports/activity/export.csv` | Download filtered activity CSV | Authenticated |
+| `POST` | `/reports/{report_id}/rerun` | Simulate a report rerun | Admin |
+| `DELETE` | `/reports/{report_id}` | Delete a report | Admin |
+| `GET` | `/templates` | List templates | Authenticated |
+| `GET` | `/schedules` | List schedules | Authenticated |
+| `POST` | `/schedules` | Create a schedule | Admin |
+| `PATCH` | `/schedules/{schedule_id}` | Update schedule frequency/date | Admin |
+| `POST` | `/schedules/{schedule_id}/pause` | Pause a schedule | Admin |
+| `POST` | `/schedules/{schedule_id}/resume` | Resume a schedule | Admin |
+| `GET` | `/schedules/{schedule_id}/runs` | Paginated scheduled-run history | Authenticated |
+
+`/reports` accepts `page`, `size`, `status`, and `search`. `/reports/activity` accepts `page`, `size`, `search`, `status`, `start_date`, `end_date`, `sort_by`, and `order`. CSV export accepts the activity search/status/date filters. Use `/docs` for request schemas and interactive examples.
+
+List errors use standard HTTP status codes; application errors include `detail.code` and `detail.message` where explicitly raised. Every response includes an `X-Request-ID` header, and the same ID is written to request logs.
+
+## Pagination format
+
+Paginated endpoints use **page-number pagination**:
+
+- `page`: 1-based page number; default `1`; must be at least `1`.
+- `size`: items per page; default depends on the endpoint (commonly `20`, `10` for `/reports/recent`); range `1`–`100`.
+- Offset is calculated as `(page - 1) * size`.
+- Results are returned in this shape:
+
+```json
+{
+  "items": [],
+  "total": 36,
+  "page": 1,
+  "size": 20
+}
+```
+
+`items` contains the current page, `total` is the number of rows matching the filters before pagination, and `page`/`size` echo the requested values. Example requests:
+
+```http
+GET /reports?page=1&size=20
+GET /reports?page=2&size=10&status=Completed
+GET /reports/activity?page=1&size=25&sort_by=created_at&order=desc
+GET /reports/activity?start_date=2026-10-01T00:00:00Z&end_date=2026-10-29T23:59:59Z
+```
+
+Supported activity sort fields are `created_at`, `status`, `action`, and `id`; `order` is `asc` or `desc`. Invalid page/size values or invalid sort values return a validation response. For large datasets, consider cursor pagination as a future enhancement.
+
+## How the scheduler works
+
+1. On application startup, the FastAPI lifespan checks `SCHEDULER_ENABLED` (`true` by default).
+2. If enabled, APScheduler starts a background job that calls `run_due_schedules` every minute.
+3. The job selects active schedules whose `next_run_at` is due. On PostgreSQL it uses `FOR UPDATE SKIP LOCKED` to reduce the chance that concurrent workers claim the same schedule.
+4. For each due schedule, it records `last_claimed_for`, advances `next_run_at`, updates the associated report, and inserts a `report_activity` row with action `scheduled_run`. These changes are committed in one transaction.
+5. The scheduler logs the schedule ID and scheduled timestamp. On errors, the transaction is rolled back and the error is logged.
+6. When the API process shuts down normally, the scheduler is stopped.
+
+Current demo behavior and deployment cautions:
+
+- Report execution is simulated, not connected to a real report-generation engine. A report name containing `fail` is marked `Failed`; other report names are marked `Completed`.
+- `Daily` advances by one day, `Weekly` by seven days, and `Monthly` by **30 days** as a demo approximation—not by calendar month.
+- Scheduler activity is in-process. Run a single scheduler-enabled API replica unless you have validated multi-replica behavior. For production scale, move scheduling into a dedicated worker and use a durable distributed locking/claim strategy.
+- `FOR UPDATE SKIP LOCKED` behavior is database-dependent; SQLite tests do not validate PostgreSQL concurrency semantics.
+- Set `SCHEDULER_ENABLED=false` to disable the background job (useful for tests or when running a separate scheduler worker).
+
+## Entity relationship diagram
+
+```mermaid
+erDiagram
+    USERS ||--o{ REPORTS : owns
+    REPORT_TEMPLATES ||--o{ REPORTS : describes
+    REPORTS ||--o{ REPORT_SCHEDULES : has
+    REPORTS ||--o{ REPORT_ACTIVITY : records
+
+    USERS {
+        int id PK
+        string name
+        string email UK
+        string hashed_password
+        string role
+        datetime created_at
+    }
+    REPORT_TEMPLATES {
+        int id PK
+        string name UK
+        string module
+        text description
+    }
+    REPORTS {
+        int id PK
+        string name
+        string module
+        string report_type
+        string status
+        int owner_id FK "nullable"
+        int template_id FK "nullable"
+        datetime last_run_at "nullable"
+        int run_duration_ms "nullable"
+        datetime created_at
+    }
+    REPORT_SCHEDULES {
+        int id PK
+        int report_id FK
+        string frequency
+        datetime next_run_at
+        boolean is_active
+        datetime last_claimed_for "nullable"
+        datetime created_at
+    }
+    REPORT_ACTIVITY {
+        int id PK
+        int report_id FK "nullable"
+        string action
+        string status
+        text message "nullable"
+        int run_duration_ms "nullable"
+        string request_id "nullable"
+        datetime created_at
+    }
+```
+
+Relationship notes:
+
+- A user can own zero or many reports; `reports.owner_id` is nullable and uses `ON DELETE SET NULL`.
+- A template can be associated with zero or many reports; `reports.template_id` is nullable and uses `ON DELETE SET NULL`.
+- A report can have multiple schedules and activity entries. Deleting a report cascades to its schedules and ORM-related activity entries; the activity foreign key is configured to set null at the database level.
+- A unique constraint prevents duplicate schedule rows for the same `(report_id, frequency)` pair.
+
+## Tests
+
+Run the automated tests from the project root with the virtual environment active:
+
+```bash
+pytest -q
+```
+
+The test fixtures configure an in-memory SQLite database and disable the scheduler. Use PostgreSQL separately to validate PostgreSQL-specific SQL and locking behavior.
+
+## Operational notes
+
+- Parameterize values in SQLAlchemy queries. Keep sort columns allow-listed rather than interpolating user-supplied SQL identifiers.
+- Indexes support common report, activity, user-email, and due-schedule lookups; indexes use additional storage and add write overhead.
+- Keep `.env` out of version control. Rotate any password or secret that has been exposed.
+- Before production, add centralized validation-error formatting, structured audit/security monitoring, calendar-aware monthly schedules, migration-only schema management, and a dedicated scheduler worker if multiple API replicas are needed.
+
+
+

@@ -1,25 +1,18 @@
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from typing import Literal
-
-from pydantic import BaseModel, EmailStr, Field, ConfigDict
-
-
-class UserRegister(BaseModel):
-    name: str = Field(min_length=2, max_length=100)
+class RegisterRequest(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
-    role: Literal["Admin", "Viewer"] = "Viewer"
-
+    role: str = "Viewer"
 
 class UserResponse(BaseModel):
-    id: int
-    username: str
-    email: EmailStr
-    role: Literal["Admin", "Viewer"]
-
     model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    email: str
+    role: str
 
-
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=1, max_length=128)

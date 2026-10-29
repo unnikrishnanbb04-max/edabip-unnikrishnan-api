@@ -1,19 +1,22 @@
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import ReportTemplate
 
 
 def list_templates(db: Session):
-    return db.query(ReportTemplate).order_by(
+    statement = select(ReportTemplate).order_by(
         ReportTemplate.id.desc()
-    ).all()
+    )
+    return db.scalars(statement).all()
 
 
 def get_template(db: Session, template_id: int):
-    return db.query(ReportTemplate).filter(
+    statement = select(ReportTemplate).where(
         ReportTemplate.id == template_id
-    ).first()
+    )
+    return db.scalars(statement).first()
 
 
 def create_template(db: Session, template: ReportTemplate):
