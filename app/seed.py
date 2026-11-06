@@ -3,7 +3,7 @@ from app.database import SessionLocal
 from app.models import Report, ReportTemplate, User, ReportActivity
 from app.security import hash_password
 
-def seed():
+def Seed():
     db = SessionLocal()
     try:
         if db.query(Report).count() > 0:

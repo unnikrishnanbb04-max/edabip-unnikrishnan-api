@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
 from app.models.report import Report
-from app.schemas.report import ReportCreate, ReportResponse, SummaryResponse
+from app.schemas.report import ReportCreate, ReportResponse, SummaryResponse, RecentReportsResponse, StatusPercentagesResponse, TypeDistributionResponse, TopTemplatesResponse, ReportsListResponse, ActivityListResponse
 from app.repositories.reports import list_reports, get_summary, get_status_percentages, get_type_distribution, recent_reports, top_templates, list_activity
 from app.services.reports import get_report_or_404, run_report
 from sqlalchemy import select
@@ -19,30 +19,30 @@ router = APIRouter(prefix="/reports", tags=["Reports"])
 def summary(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return get_summary(db)
 
-@router.get("/type-distribution", summary="Count reports by type")
+@router.get("/type-distribution", response_model=TypeDistributionResponse, summary="Count reports by type")
 def type_distribution(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    return {"items": get_type_distribution(db)}
+    return TypeDistributionResponse(items=get_type_distribution(db))
 
-@router.get("/status-percentages", summary="Get report status percentages")
+@router.get("/status-percentages", response_model=StatusPercentagesResponse, summary="Get report status percentages")
 def status_percentages(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    return {"items": get_status_percentages(db)}
+    return StatusPercentagesResponse(items=get_status_percentages(db))
 
-@router.get("/recent", summary="Get recent reports")
+@router.get("/recent", response_model=RecentReportsResponse, summary="Get recent reports")
 def recent(db: Session = Depends(get_db), limit: int = Query(10, ge=1, le=100), user: User = Depends(get_current_user)):
     items = db.scalars(
     select(Report)
     .order_by(Report.created_at.desc())
     .limit(limit)
 ).all()
-    return {"items": [ReportResponse.model_validate(r).model_dump(mode="json") for r in items], "total": len(items), "page": 1, "size": len(items)}
+    return RecentReportsResponse(items=[ReportResponse.model_validate(r).model_dump(mode="json") for r in items], total=len(items), page=1, size=len(items))
 
-@router.get("/top-templates", summary="Get most-used report templates")
+@router.get("/top-templates", response_model=TopTemplatesResponse, summary="Get most-used report templates")
 def templates(db: Session = Depends(get_db), limit: int = Query(5, ge=1, le=50), user: User = Depends(get_current_user)):
     from app.repositories.reports import top_templates
     items = top_templates(db, limit)
     return {"items": items, "total": len(items), "page": 1, "size": len(items)}
 
-@router.get("", response_model=None, summary="List reports with filtering and pagination")
+@router.get("", response_model=ReportsListResponse, summary="List reports with filtering and pagination")
 def reports_list(page: int = Query(1, ge=1), size: int = Query(10, ge=1, le=100),
                  search: str | None = None, status: str | None = None,
                  report_type: str | None = None, sort_by: str = "created_at",
@@ -60,7 +60,7 @@ def create_report(payload: ReportCreate, db: Session = Depends(get_db), user: Us
     db.add(report); db.commit(); db.refresh(report)
     return report
 
-@router.get("/activity/list", summary="List recent activity")
+@router.get("/activity/list", response_model=ActivityListResponse, summary="List recent activity")
 def activity_list(page: int = Query(1, ge=1), size: int = Query(10, ge=1, le=100),
                   search: str | None = None, status: str | None = None,
                   sort_by: str = "created_at", order: str = Query("desc", pattern="^(asc|desc)$"),
@@ -71,7 +71,19 @@ def activity_list(page: int = Query(1, ge=1), size: int = Query(10, ge=1, le=100
     items, total = list_activity(db, page, size, search, status, date_from, date_to, sort_by, order)
     return {"items": [{"id": x.id, "report_id": x.report_id, "schedule_id": x.schedule_id, "action": x.action, "status": x.status, "message": x.message, "duration_seconds": x.duration_seconds, "created_at": x.created_at.isoformat()} for x in items], "total": total, "page": page, "size": size}
 
-@router.get("/activity/export.csv", summary="Export filtered recent activity as CSV")
+@router.get("/activity/export.csv", summary="Export filtered recent activity as CSV",     responses={
+        200: {
+            "description": "CSV file containing filtered recent activity",
+            "content": {
+                "text/csv": {
+                    "schema": {
+                        "type": "string",
+                        "format": "binary"
+                    }
+                }
+            }
+        }
+    })
 def activity_csv(search: str | None = None, status: str | None = None,
                  date_from: datetime | None = None, date_to: datetime | None = None,
                  db: Session = Depends(get_db), user: User = Depends(get_current_user)):

@@ -1,3 +1,4 @@
+from typing import List
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -43,3 +44,55 @@ class DistributionItem(BaseModel):
     name: str
     count: int
     percentage: float | None = None
+
+
+class TypeDistributionItem(BaseModel):
+    name: str
+    count: int
+
+
+class TypeDistributionResponse(BaseModel):
+    items: List[TypeDistributionItem]
+
+
+
+class StatusPercentageItem(BaseModel):
+    name: str
+    count: int
+    percentage: float
+
+class StatusPercentagesResponse(BaseModel):
+    items: List[StatusPercentageItem]
+
+class RecentReportsResponse(BaseModel):
+    items: List[ReportResponse]
+    total: int
+    page: int
+    size: int
+
+
+class TopTemplateItem(BaseModel):
+    id: int
+    template_name: str
+    module: str
+    usage_count: int
+
+
+class TopTemplatesResponse(BaseModel):
+    items: list[TopTemplateItem]
+    total: int
+    page: int
+    size: int
+
+class ReportsListResponse(BaseModel):
+    items: List[ReportResponse] 
+    total: int
+    page: int
+    size: int
+
+
+class ActivityListResponse(BaseModel):
+    items: list[ActivityResponse]
+    total: int
+    page: int
+    size: int
