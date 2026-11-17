@@ -38,9 +38,31 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
     return user
 
 @router.post("/login", response_model=TokenResponse, summary="Log in and receive a JWT")
-def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)):
-    check_rate_limit(request.client.host if request.client else "unknown")
-    user = db.scalar(select(User).where(User.email == payload.email.lower()))
-    if not user or not verify_password(payload.password, user.hashed_password):
-        raise HTTPException(status_code=401, detail="Incorrect email or password")
-    return {"access_token": create_access_token(str(user.id)), "token_type": "bearer"}
+def login(
+    payload: LoginRequest,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    check_rate_limit(
+        request.client.host if request.client else "unknown"
+    )
+
+    user = db.scalar(
+        select(User).where(User.email == payload.email.lower())
+    )
+
+    if not user or not verify_password(
+        payload.password, user.hashed_password
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="Incorrect email or password"
+        )
+
+    return {
+        "access_token": create_access_token(str(user.id)),
+        "token_type": "bearer",
+        "role": user.role,
+        "user_id": user.id,
+        "name": user.name
+    }
